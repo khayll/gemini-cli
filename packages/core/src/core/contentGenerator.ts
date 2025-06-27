@@ -13,6 +13,7 @@ import {
   EmbedContentParameters,
   GoogleGenAI,
 } from '@google/genai';
+import { GPT4oContentGenerator } from './gpt4oContentGenerator.js';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import { getEffectiveModel } from './modelCheck.js';
@@ -38,6 +39,7 @@ export enum AuthType {
   LOGIN_WITH_GOOGLE_PERSONAL = 'oauth-personal',
   USE_GEMINI = 'gemini-api-key',
   USE_VERTEX_AI = 'vertex-ai',
+  CUSTOM_GPT4O = 'custom-gpt4o',
 }
 
 export type ContentGeneratorConfig = {
@@ -45,6 +47,12 @@ export type ContentGeneratorConfig = {
   apiKey?: string;
   vertexai?: boolean;
   authType?: AuthType | undefined;
+  /** Custom endpoint for GPT-4o or other models. */
+  customUrl?: string;
+  /** Name of the custom authentication header. */
+  customAuthHeaderName?: string;
+  /** Token value for the custom authentication header. */
+  customAuthToken?: string;
 };
 
 export async function createContentGeneratorConfig(
@@ -56,6 +64,9 @@ export async function createContentGeneratorConfig(
   const googleApiKey = process.env.GOOGLE_API_KEY;
   const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
   const googleCloudLocation = process.env.GOOGLE_CLOUD_LOCATION;
+  const customUrl = process.env.GPT4O_ENDPOINT;
+  const customHeaderName = process.env.GPT4O_AUTH_HEADER_NAME;
+  const customToken = process.env.GPT4O_AUTH_TOKEN;
 
   // Use runtime model from config if available, otherwise fallback to parameter or default
   const effectiveModel = config?.getModel?.() || model || DEFAULT_GEMINI_MODEL;
@@ -97,6 +108,18 @@ export async function createContentGeneratorConfig(
     return contentGeneratorConfig;
   }
 
+  if (
+    authType === AuthType.CUSTOM_GPT4O &&
+    customUrl &&
+    customHeaderName &&
+    customToken
+  ) {
+    contentGeneratorConfig.customUrl = customUrl;
+    contentGeneratorConfig.customAuthHeaderName = customHeaderName;
+    contentGeneratorConfig.customAuthToken = customToken;
+    return contentGeneratorConfig;
+  }
+
   return contentGeneratorConfig;
 }
 
@@ -124,6 +147,17 @@ export async function createContentGenerator(
     });
 
     return googleGenAI.models;
+  }
+
+  if (config.authType === AuthType.CUSTOM_GPT4O) {
+    if (!config.customUrl || !config.customAuthHeaderName || !config.customAuthToken) {
+      throw new Error('Missing custom GPT-4o configuration.');
+    }
+    return new GPT4oContentGenerator({
+      url: config.customUrl,
+      authHeaderName: config.customAuthHeaderName,
+      authToken: config.customAuthToken,
+    });
   }
 
   throw new Error(
